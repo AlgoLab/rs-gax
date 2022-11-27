@@ -13,7 +13,7 @@ pub mod vg {
     include!(concat!(env!("OUT_DIR"), "/vg.rs"));
 }
 
-pub fn parse(data: impl Read) -> Result<Vec<vg::Alignment>, GamError> {
+pub fn parse(data: impl Read) -> Result<Vec<vg::MultipathAlignment>, GampError> {
     // Decompress data
     let mut decoder = MultiGzDecoder::new(data);
     let mut data = vec![];
@@ -30,9 +30,9 @@ pub fn parse(data: impl Read) -> Result<Vec<vg::Alignment>, GamError> {
         let mut type_tag = vec![0; type_tag_len as usize];
         cursor.read_exact(&mut type_tag)?;
         let type_tag = String::from_utf8(type_tag)?;
-        // Should always be equal to GAM
-        if type_tag != "GAM" {
-            return Err(GamError::InvalidTypeTag(type_tag));
+        // Should always be equal to MGAM
+        if type_tag != "MGAM" {
+            return Err(GampError::InvalidTypeTag(type_tag));
         }
 
         // Read all messages in the group
@@ -41,19 +41,22 @@ pub fn parse(data: impl Read) -> Result<Vec<vg::Alignment>, GamError> {
             let mut buffer = vec![0; message_len as _];
             cursor.read_exact(&mut buffer)?;
             let mut tmp = &buffer[..];
-            let alignment = vg::Alignment::decode(&mut tmp)?;
+            let alignment = vg::MultipathAlignment::decode(&mut tmp)?;
             alignments.push(alignment);
         }
     }
     Ok(alignments)
 }
 
-pub fn write(alignments: &Vec<vg::Alignment>, mut out_file: impl Write) -> Result<(), GamError> {
+pub fn write(
+    alignments: &Vec<vg::MultipathAlignment>,
+    mut out_file: impl Write,
+) -> Result<(), GampError> {
     let mut alignments = alignments.clone();
     let mut buf = vec![];
     while !alignments.is_empty() {
         let end_index = alignments.len().min(1000);
-        let alignments: Vec<vg::Alignment> = alignments.drain(..end_index).collect();
+        let alignments: Vec<vg::MultipathAlignment> = alignments.drain(..end_index).collect();
         write_group(alignments, &mut buf)?;
     }
 
@@ -66,19 +69,22 @@ pub fn write(alignments: &Vec<vg::Alignment>, mut out_file: impl Write) -> Resul
     Ok(())
 }
 
-fn write_group(alignments: Vec<vg::Alignment>, mut file: impl Write) -> Result<(), GamError> {
+fn write_group(
+    alignments: Vec<vg::MultipathAlignment>,
+    mut file: impl Write,
+) -> Result<(), GampError> {
     let mut buf = vec![];
     // Write number of messages in the group
     encode_varint(alignments.len() as u64 + 1, &mut buf);
     // Write type tag
-    encode_varint(3, &mut buf);
+    encode_varint(4, &mut buf);
     file.write_all(&buf)?;
-    file.write_all("GAM".as_bytes())?;
+    file.write_all("MGAM".as_bytes())?;
 
     // Write all messages
     for alignment in alignments {
         let mut buf = vec![];
-        vg::Alignment::encode(&alignment, &mut buf)?;
+        vg::MultipathAlignment::encode(&alignment, &mut buf)?;
         let mut buf_len = vec![];
         encode_varint(buf.len() as _, &mut buf_len);
         // Write message length
@@ -91,11 +97,11 @@ fn write_group(alignments: Vec<vg::Alignment>, mut file: impl Write) -> Result<(
 
 #[derive(thiserror::Error, Debug)]
 #[error(transparent)]
-pub enum GamError {
+pub enum GampError {
     IoError(#[from] std::io::Error),
     Utf8Error(#[from] std::string::FromUtf8Error),
     ProstDecodeError(#[from] prost::DecodeError),
     ProstEncodeError(#[from] prost::EncodeError),
-    #[error("Type tag is {0}, expected \"GAM\"")]
+    #[error("Type tag is {0}, expected \"MGAM\"")]
     InvalidTypeTag(String),
 }
