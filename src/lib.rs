@@ -1,3 +1,4 @@
 pub mod gaf;
 pub mod gam;
-pub(crate) mod framing;
+pub mod gamp;
+pub mod framing;
