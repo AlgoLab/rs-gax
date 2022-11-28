@@ -10,6 +10,8 @@ pub mod vg {
     include!(concat!(env!("OUT_DIR"), "/vg.rs"));
 }
 
+const MAX_GROUP_SIZE: usize = 1000;
+
 pub(crate) trait SupportedFormat: prost::Message + Default + Clone {
     fn type_tag() -> String;
 }
@@ -68,7 +70,8 @@ pub(crate) fn write<Message: SupportedFormat>(
     let mut alignments = alignments.to_owned();
     let mut buf = vec![];
     while !alignments.is_empty() {
-        let end_index = alignments.len().min(1000);
+        // This step may be optional
+        let end_index = alignments.len().min(MAX_GROUP_SIZE);
         let alignments: Vec<Message> = alignments.drain(..end_index).collect();
         write_group(alignments, &mut buf)?;
     }
