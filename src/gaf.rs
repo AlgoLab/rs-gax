@@ -2,10 +2,11 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
-pub fn parse(mut data: impl Read) -> Vec<GafRecord> {
+pub fn parse(data: impl Read) -> Vec<GafRecord> {
     let mut records = Vec::new();
     let mut string = String::new();
-    data.read_to_string(&mut string).unwrap();
+    let mut reader = std::io::BufReader::new(data);
+    reader.read_to_string(&mut string).unwrap();
     for line in string.lines() {
         let gr = GafRecord::parse(line);
         records.push(gr);

@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::io::BufReader;
 
 mod gaf;
 use gaf::GafRecord;
@@ -19,7 +18,6 @@ fn main_() -> Result<(), Box<dyn std::error::Error>> {
     let in_file = "data/example.gaf";
     let out_file = "data/example.out.gaf";
     let f = File::open(in_file).unwrap();
-    let f = BufReader::new(f);
     let of = File::create(out_file).unwrap();
     let gaf: Vec<GafRecord> = gaf::parse(f);
     gaf::write(&gaf, of)?;
@@ -30,7 +28,6 @@ fn main_() -> Result<(), Box<dyn std::error::Error>> {
     let in_file = "data/example.gam";
     let out_file = "data/example.out.gam";
     let f = File::open(in_file)?;
-    let f = BufReader::new(f);
     let gam = gam::parse(f)?;
     let of = File::create(out_file)?;
     gam::write(&gam, of)?;
@@ -41,7 +38,6 @@ fn main_() -> Result<(), Box<dyn std::error::Error>> {
     let in_file = "data/example.gamp";
     let out_file = "data/example.out.gamp";
     let f = File::open(in_file)?;
-    let f = BufReader::new(f);
     let gamp = gamp::parse(f)?;
     let of = File::create(out_file)?;
     gamp::write(&gamp, of)?;
