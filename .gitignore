@@ -4,3 +4,6 @@
 data/example.out.gaf
 data/example.out.gam
 data/example.out.gamp
+.env
+.ropeproject
+*.so

@@ -1,3 +1,4 @@
+use pyo3::FromPyObject;
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -31,7 +32,7 @@ const MISSING_STRING: &str = "*";
 /**
  * One step of a GAF path
  */
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, FromPyObject)]
 pub struct GafStep {
     pub name: String,       // Either a path name or segment/node name (see above)
     pub is_reverse: bool,   // In reverse orientation ('<' in GAF)
@@ -65,7 +66,7 @@ impl GafStep {
  * One line of GAF as described here: https://github.com/lh3/gfatools/blob/master/doc/rGFA.md
  */
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, FromPyObject)]
 pub struct GafRecord {
     pub query_name: String, // Query sequence name
     pub query_length: i64,  // Query sequence length
