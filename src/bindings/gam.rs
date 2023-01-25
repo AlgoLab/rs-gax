@@ -317,7 +317,7 @@ fn write(gams: Vec<PyObject>, file_name: &str) -> PyResult<()> {
         let records = gams
             .iter()
             .map(|o| -> PyResult<_> { o.extract::<vg::Alignment>(py) })
-            .collect::<PyResult<_>>()?;
+            .collect::<PyResult<Vec<_>>>()?;
         gam::write(&records, file)?;
         Ok(())
     })

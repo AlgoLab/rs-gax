@@ -108,7 +108,7 @@ fn write(gamp: Vec<PyObject>, file_name: &str) -> PyResult<()> {
         let records = gamp
             .iter()
             .map(|o| -> PyResult<_> { o.extract::<vg::MultipathAlignment>(py) })
-            .collect::<PyResult<_>>()?;
+            .collect::<PyResult<Vec<_>>>()?;
         gamp::write(&records, file)?;
         Ok(())
     })

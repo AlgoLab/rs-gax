@@ -1,5 +1,4 @@
 use pyo3::FromPyObject;
-use regex::Regex;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
@@ -93,57 +92,50 @@ impl GafRecord {
     pub fn parse(line: &str) -> Self {
         let mut split = line.split('\t');
 
-        let mut token: &str = split.next().unwrap();
+        let mut token = split.next().unwrap();
         let query_name = token.to_string();
-
         token = split.next().unwrap();
         let query_length = token.parse::<i64>().unwrap();
-
         token = split.next().unwrap();
         let query_start = token.parse::<i64>().unwrap();
-
         token = split.next().unwrap();
         let query_end = token.parse::<i64>().unwrap();
-
         token = split.next().unwrap();
         let strand = token.chars().next().unwrap();
 
-        let mut path = Vec::new();
         token = split.next().unwrap();
-        let c = token.chars().next().unwrap();
-        if c == '<' || c == '>' {
-            // our path is a list of oriented segments or intervales
-            let re = Regex::new(r"([><][^\s><]+(:\d+-\d+)?)").unwrap();
-            for cap in re.captures_iter(token) {
-                let step_token = &cap[1];
+        let mut path = Vec::new();
+        if token.to_string().starts_with(['<', '>']) {
+            // orientIntv
+            let mut splits: Vec<_> = token.match_indices(['<', '>']).map(|(i, _)| i).collect();
+            splits.push(token.len());
+
+            for step_token in splits
+                .windows(2)
+                .map(|indexes| &token[indexes[0]..indexes[1]])
+            {
                 let is_reverse = &step_token[0..1] == "<";
-                let step = match step_token.find(':') {
+                let s = match step_token.find(':') {
                     Some(colon) => {
-                        // colon, we interpret the step as a stable path interval
                         let Some(dash) = step_token[colon..].find('-') else {
                             panic!("Error parsing GAF range of {}", step_token)
                         };
-                        let start = step_token[colon + 1..colon + dash]
-                            .parse::<i64>()
-                            .unwrap()
-                            .into();
-                        let end = step_token[colon + 1 + dash..]
-                            .parse::<i64>()
-                            .unwrap()
-                            .into();
+                        let start = step_token[colon + 1..colon + dash].parse::<i64>().unwrap();
+                        let end = step_token[colon + 1 + dash..].parse::<i64>().unwrap();
+                        // stableIntv
                         GafStep {
-                            name: step_token[1..colon - 1].to_string(),
+                            name: (step_token[1..colon - 1]).to_string(),
                             is_reverse,
                             is_stable: true,
                             is_interval: true,
-                            start,
-                            end,
+                            start: Some(start),
+                            end: Some(end),
                         }
                     }
                     None => {
-                        // no colon, we interpret the step as a segID
+                        // segId
                         GafStep {
-                            name: step_token[1..].to_string(),
+                            name: (step_token[1..]).to_string(),
                             is_reverse,
                             is_stable: false,
                             is_interval: false,
@@ -152,10 +144,10 @@ impl GafRecord {
                         }
                     }
                 };
-                path.push(step);
+                path.push(s);
             }
-        } else if token != "*" {
-            // our path is a stable path name
+        } else {
+            // stableId
             path.push(GafStep {
                 name: token.to_string(),
                 is_reverse: false,
@@ -197,7 +189,7 @@ impl GafRecord {
             }
         }
 
-        GafRecord {
+        Self {
             query_name,
             query_length,
             query_start,

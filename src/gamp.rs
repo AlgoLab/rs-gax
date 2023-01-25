@@ -7,7 +7,7 @@ pub fn parse(data: impl Read) -> Result<Vec<vg::MultipathAlignment>, Error> {
 }
 
 pub fn write(
-    alignments: &Vec<vg::MultipathAlignment>,
+    alignments: &[vg::MultipathAlignment],
     mut out_file: impl Write,
 ) -> Result<(), Error> {
     framing::write::<vg::MultipathAlignment>(alignments, &mut out_file)

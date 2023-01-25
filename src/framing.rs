@@ -64,16 +64,15 @@ pub(crate) fn parse<Message: SupportedFormat>(data: impl Read) -> Result<Vec<Mes
 }
 
 pub(crate) fn write<Message: SupportedFormat>(
-    alignments: &Vec<Message>,
+    alignments: &[Message],
     mut out_file: impl Write,
 ) -> Result<(), Error> {
-    let mut alignments = alignments.to_owned();
+    let alignments = alignments.to_owned();
     let mut buf = vec![];
-    while !alignments.is_empty() {
+
+    for group in alignments.chunks(MAX_GROUP_SIZE) {
         // This step may be optional
-        let end_index = alignments.len().min(MAX_GROUP_SIZE);
-        let alignments: Vec<Message> = alignments.drain(..end_index).collect();
-        write_group(alignments, &mut buf)?;
+        write_group(group, &mut buf)?;
     }
 
     // Compress data
@@ -86,7 +85,7 @@ pub(crate) fn write<Message: SupportedFormat>(
 }
 
 fn write_group<Message: SupportedFormat>(
-    alignments: Vec<Message>,
+    alignments: &[Message],
     mut file: impl Write,
 ) -> Result<(), Error> {
     let mut buf = vec![];
@@ -101,7 +100,7 @@ fn write_group<Message: SupportedFormat>(
     // Write all messages
     for alignment in alignments {
         let mut buf = vec![];
-        Message::encode(&alignment, &mut buf)?;
+        Message::encode(alignment, &mut buf)?;
         let mut buf_len = vec![];
         encode_varint(buf.len() as _, &mut buf_len);
         // Write message length
