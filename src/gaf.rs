@@ -85,6 +85,14 @@ pub struct GafRecord {
     pub opt_fields: HashMap<String, (String, String)>,
 }
 
+fn number_or_missing(token: &str) -> i64 {
+    if token == "*" {
+        MISSING_INT
+    } else {
+        token.parse::<i64>().unwrap()
+    }
+}
+
 impl GafRecord {
     /**
      * Parse a single GAF record
@@ -95,11 +103,11 @@ impl GafRecord {
         let mut token = split.next().unwrap();
         let query_name = token.to_string();
         token = split.next().unwrap();
-        let query_length = token.parse::<i64>().unwrap();
+        let query_length = number_or_missing(token);
         token = split.next().unwrap();
-        let query_start = token.parse::<i64>().unwrap();
+        let query_start = number_or_missing(token);
         token = split.next().unwrap();
-        let query_end = token.parse::<i64>().unwrap();
+        let query_end = number_or_missing(token);
         token = split.next().unwrap();
         let strand = token.chars().next().unwrap();
 
@@ -159,15 +167,15 @@ impl GafRecord {
         }
 
         token = split.next().unwrap();
-        let path_length = token.parse::<i64>().unwrap();
+        let path_length = number_or_missing(token);
         token = split.next().unwrap();
-        let path_start = token.parse::<i64>().unwrap();
+        let path_start = number_or_missing(token);
         token = split.next().unwrap();
-        let path_end = token.parse::<i64>().unwrap();
+        let path_end = number_or_missing(token);
         token = split.next().unwrap();
-        let matches = token.parse::<i64>().unwrap();
+        let matches = number_or_missing(token);
         token = split.next().unwrap();
-        let block_length = token.parse::<i64>().unwrap();
+        let block_length = number_or_missing(token);
 
         token = split.next().unwrap();
         let mapq = if token == MISSING_STRING {
