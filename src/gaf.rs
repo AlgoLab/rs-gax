@@ -1,5 +1,6 @@
 use pyo3::FromPyObject;
 use std::collections::HashMap;
+use std::fs::File;
 use std::io::{Read, Write};
 
 pub fn parse(data: impl Read) -> Vec<GafRecord> {
@@ -14,11 +15,24 @@ pub fn parse(data: impl Read) -> Vec<GafRecord> {
     records
 }
 
+pub fn parse_from_file(path: impl AsRef<std::path::Path>) -> Vec<GafRecord> {
+    let f = File::open(path).unwrap();
+    parse(f)
+}
+
 pub fn write(records: &Vec<GafRecord>, mut out_file: impl Write) -> std::io::Result<()> {
     for record in records {
         record.write(&mut out_file)?;
     }
     Ok(())
+}
+
+pub fn write_to_file(
+    records: &Vec<GafRecord>,
+    path: impl AsRef<std::path::Path>,
+) -> std::io::Result<()> {
+    let f = File::create(path)?;
+    write(records, f)
 }
 
 /**
@@ -269,7 +283,6 @@ mod tests {
 
     #[test]
     fn gaf_read() {
-        // let line: &str = "read1\t6\t0\t6\t+\t>s2>s3>s4\t12\t2\t8\t6\t6\t60\tcg:Z:6M";
         let line: &str = "read2\t7\t0\t7\t-\t>chr1:5-8>foo:8-16\t11\t1\t8\t7\t7\t60\tcg:Z:7M";
         let rec: GafRecord = GafRecord::parse(line);
         assert_eq!(rec.query_name, "read2");

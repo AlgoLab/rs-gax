@@ -1,7 +1,6 @@
 use super::dict::{pydict_to_struct, struct_to_pydict};
 use crate::{gam, vg};
 use pyo3::prelude::*;
-use std::fs::File;
 
 // IntoPyObject
 impl IntoPy<PyObject> for vg::Alignment {
@@ -302,8 +301,7 @@ impl FromPyObject<'_> for vg::Edit {
 
 #[pyfunction(name = "parse")]
 fn parse(file_name: &str) -> PyResult<Vec<PyObject>> {
-    let file = File::open(file_name)?;
-    let gam = gam::parse(file)?;
+    let gam = gam::parse_from_file(file_name)?;
     Python::with_gil(|py| {
         let gam: Vec<_> = gam.iter().map(|o| o.clone().into_py(py)).collect();
         Ok(gam)
@@ -312,13 +310,12 @@ fn parse(file_name: &str) -> PyResult<Vec<PyObject>> {
 
 #[pyfunction(name = "write")]
 fn write(gams: Vec<PyObject>, file_name: &str) -> PyResult<()> {
-    let file = File::create(file_name)?;
     Python::with_gil(|py| -> PyResult<_> {
         let records = gams
             .iter()
             .map(|o| -> PyResult<_> { o.extract::<vg::Alignment>(py) })
             .collect::<PyResult<Vec<_>>>()?;
-        gam::write(&records, file)?;
+        gam::write_to_file(&records, file_name)?;
         Ok(())
     })
 }

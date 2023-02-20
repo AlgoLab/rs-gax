@@ -1,6 +1,5 @@
 use crate::gaf;
 use pyo3::prelude::*;
-use std::fs::File;
 
 impl IntoPy<PyObject> for gaf::GafRecord {
     fn into_py(self, py: Python) -> PyObject {
@@ -39,8 +38,7 @@ impl IntoPy<PyObject> for gaf::GafStep {
 
 #[pyfunction]
 fn parse(file_name: &str) -> PyResult<Vec<PyObject>> {
-    let file = File::open(file_name)?;
-    let gaf = gaf::parse(file);
+    let gaf = gaf::parse_from_file(file_name);
     Python::with_gil(|py| {
         let gaf: Vec<_> = gaf.iter().map(|o| o.clone().into_py(py)).collect();
         Ok(gaf)
@@ -49,13 +47,12 @@ fn parse(file_name: &str) -> PyResult<Vec<PyObject>> {
 
 #[pyfunction]
 fn write(gafs: Vec<PyObject>, file_name: &str) -> PyResult<()> {
-    let file = File::create(file_name)?;
     Python::with_gil(|py| -> PyResult<_> {
         let records = gafs
             .iter()
             .map(|o| -> PyResult<_> { o.extract::<gaf::GafRecord>(py) })
             .collect::<PyResult<_>>()?;
-        gaf::write(&records, file)?;
+        gaf::write_to_file(&records, file_name)?;
         Ok(())
     })
 }

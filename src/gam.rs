@@ -1,20 +1,79 @@
-use std::io::prelude::*;
+use std::{fs::File, io::prelude::*};
 
-use crate::framing::{self, vg, Error};
+use crate::{
+    framing::{self, vg, Error},
+    gaf::GafRecord,
+};
 
 pub fn parse(data: impl Read) -> Result<Vec<vg::Alignment>, Error> {
     framing::parse::<vg::Alignment>(data)
+}
+
+pub fn parse_from_file(path: impl AsRef<std::path::Path>) -> Result<Vec<vg::Alignment>, Error> {
+    let f = File::open(path)?;
+    parse(f)
 }
 
 pub fn write(alignments: &[vg::Alignment], mut out_file: impl Write) -> Result<(), Error> {
     framing::write::<vg::Alignment>(alignments, &mut out_file)
 }
 
+pub fn write_to_file(
+    alignments: &[vg::Alignment],
+    path: impl AsRef<std::path::Path>,
+) -> Result<(), Error> {
+    let f = File::create(path)?;
+    write(alignments, f)
+}
+
+impl From<GafRecord> for vg::Alignment {
+    fn from(value: GafRecord) -> Self {
+        let mut first = true;
+        let mapping = value
+            .path
+            .iter()
+            .enumerate()
+            .map(|(rank, step)| {
+                let offset = if first {
+                    first = false;
+                    value.path_start
+                } else {
+                    0
+                };
+                let position = vg::Position {
+                    node_id: step.name.parse::<i64>().unwrap(),
+                    offset,
+                    is_reverse: step.is_reverse,
+                    ..Default::default()
+                };
+
+                vg::Mapping {
+                    position: Some(position),
+                    rank: rank as i64 + 1,
+                    ..Default::default()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let path = vg::Path {
+            mapping,
+            ..Default::default()
+        };
+
+        Self {
+            name: value.query_name.clone(),
+            path: Some(path),
+            mapping_quality: value.mapq,
+            ..Default::default()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use prost_types::{value::Kind, Value};
-
     use super::*;
+    use crate::{gaf, gam};
+    use prost_types::{value::Kind, Value};
     use std::fs::File;
 
     #[test]
@@ -83,5 +142,14 @@ mod tests {
         let first = alignments[0].clone();
 
         assert_eq!(first, alignment);
+    }
+
+    #[test]
+    fn convert() {
+        let gam = gam::parse_from_file("data/convert.gam").unwrap();
+        let gaf = gaf::parse_from_file("data/convert.gaf");
+        let gam_from_gaf: Vec<framing::vg::Alignment> =
+            gaf.into_iter().map(|record| record.into()).collect();
+        assert_eq!(gam, gam_from_gaf);
     }
 }

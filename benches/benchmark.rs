@@ -1,6 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use gax::{gaf, gam, gamp};
-use std::fs::File;
 use std::io::{sink, Write};
 use std::process::Command;
 
@@ -10,24 +9,21 @@ fn read(c: &mut Criterion) {
 
     group.bench_function("gaf", |b| {
         b.iter(|| {
-            let f = File::open("data/example.gaf").unwrap();
-            let gaf = gaf::parse(f);
+            let gaf = gaf::parse_from_file("data/example.gaf");
             write!(sink(), "{:?}", gaf).unwrap();
         })
     });
 
     group.bench_function("gam", |b| {
         b.iter(|| {
-            let f = File::open("data/example.gam").unwrap();
-            let gam = gam::parse(f);
+            let gam = gam::parse_from_file("data/example.gam");
             write!(sink(), "{:?}", gam).unwrap();
         })
     });
 
     group.bench_function("gamp", |b| {
         b.iter(|| {
-            let f = File::open("data/example.gamp").unwrap();
-            let gamp = gamp::parse(f);
+            let gamp = gamp::parse_from_file("data/example.gamp");
             write!(sink(), "{:?}", gamp).unwrap();
         })
     });

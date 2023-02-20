@@ -1,5 +1,3 @@
-use std::fs::File;
-
 mod gaf;
 use gaf::GafRecord;
 
@@ -15,33 +13,21 @@ fn main() {
 
 fn main_() -> Result<(), Box<dyn std::error::Error>> {
     // GAF I/O
-    let in_file = "data/example.gaf";
-    let out_file = "data/example.out.gaf";
-    let f = File::open(in_file).unwrap();
-    let of = File::create(out_file).unwrap();
-    let gaf: Vec<GafRecord> = gaf::parse(f);
-    gaf::write(&gaf, of)?;
-    assert!(gaf == gaf::parse(File::open(out_file)?));
+    let gaf: Vec<GafRecord> = gaf::parse_from_file("data/example.gaf");
+    gaf::write_to_file(&gaf, "data/example.out.gaf")?;
+    assert!(gaf == gaf::parse_from_file("data/example.out.gaf"));
     println!("GAF: {} records", gaf.len());
 
     // GAM I/O
-    let in_file = "data/example.gam";
-    let out_file = "data/example.out.gam";
-    let f = File::open(in_file)?;
-    let gam = gam::parse(f)?;
-    let of = File::create(out_file)?;
-    gam::write(&gam, of)?;
-    assert!(gam == gam::parse(File::open(out_file)?)?);
+    let gam = gam::parse_from_file("data/example.gam")?;
+    gam::write_to_file(&gam, "data/example.out.gam")?;
+    assert!(gam == gam::parse_from_file("data/example.out.gam")?);
     println!("GAM: {} records", gam.len());
 
     // GAMP I/O
-    let in_file = "data/example.gamp";
-    let out_file = "data/example.out.gamp";
-    let f = File::open(in_file)?;
-    let gamp = gamp::parse(f)?;
-    let of = File::create(out_file)?;
-    gamp::write(&gamp, of)?;
-    assert!(gamp == gamp::parse(File::open(out_file)?)?);
+    let gamp = gamp::parse_from_file("data/example.gamp")?;
+    gamp::write_to_file(&gamp, "data/example.out.gamp")?;
+    assert!(gamp == gamp::parse_from_file("data/example.out.gamp")?);
     println!("GAMP: {} records", gamp.len());
     Ok(())
 }

@@ -1,7 +1,6 @@
 use super::dict::{pydict_to_struct, struct_to_pydict};
 use crate::{gamp, vg};
 use pyo3::prelude::*;
-use std::fs::File;
 
 // IntoPyObject
 impl IntoPy<PyObject> for vg::MultipathAlignment {
@@ -93,8 +92,7 @@ impl FromPyObject<'_> for vg::Connection {
 
 #[pyfunction]
 fn parse(file_name: &str) -> PyResult<Vec<PyObject>> {
-    let file = File::open(file_name)?;
-    let gamp = gamp::parse(file)?;
+    let gamp = gamp::parse_from_file(file_name)?;
     Python::with_gil(|py| {
         let gamp: Vec<_> = gamp.iter().map(|o| o.clone().into_py(py)).collect();
         Ok(gamp)
@@ -103,13 +101,12 @@ fn parse(file_name: &str) -> PyResult<Vec<PyObject>> {
 
 #[pyfunction]
 fn write(gamp: Vec<PyObject>, file_name: &str) -> PyResult<()> {
-    let file = File::create(file_name)?;
     Python::with_gil(|py| -> PyResult<_> {
         let records = gamp
             .iter()
             .map(|o| -> PyResult<_> { o.extract::<vg::MultipathAlignment>(py) })
             .collect::<PyResult<Vec<_>>>()?;
-        gamp::write(&records, file)?;
+        gamp::write_to_file(&records, file_name)?;
         Ok(())
     })
 }

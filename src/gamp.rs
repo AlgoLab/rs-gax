@@ -1,4 +1,4 @@
-use std::io::prelude::*;
+use std::{fs::File, io::prelude::*};
 
 use crate::framing::{self, vg, Error};
 
@@ -6,11 +6,23 @@ pub fn parse(data: impl Read) -> Result<Vec<vg::MultipathAlignment>, Error> {
     framing::parse::<vg::MultipathAlignment>(data)
 }
 
-pub fn write(
-    alignments: &[vg::MultipathAlignment],
-    mut out_file: impl Write,
-) -> Result<(), Error> {
+pub fn parse_from_file(
+    path: impl AsRef<std::path::Path>,
+) -> Result<Vec<vg::MultipathAlignment>, Error> {
+    let f = File::open(path)?;
+    parse(f)
+}
+
+pub fn write(alignments: &[vg::MultipathAlignment], mut out_file: impl Write) -> Result<(), Error> {
     framing::write::<vg::MultipathAlignment>(alignments, &mut out_file)
+}
+
+pub fn write_to_file(
+    alignments: &[vg::MultipathAlignment],
+    path: impl AsRef<std::path::Path>,
+) -> Result<(), Error> {
+    let f = File::create(path)?;
+    write(alignments, f)
 }
 
 #[cfg(test)]
