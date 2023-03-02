@@ -1,9 +1,4 @@
-mod gaf;
-use gaf::GafRecord;
-
-mod framing;
-mod gam;
-mod gamp;
+use gax::{gaf, gam, gamp};
 
 fn main() {
     if let Err(e) = main_() {
@@ -13,7 +8,7 @@ fn main() {
 
 fn main_() -> Result<(), Box<dyn std::error::Error>> {
     // GAF I/O
-    let gaf: Vec<GafRecord> = gaf::parse_from_file("data/example.gaf");
+    let gaf = gaf::parse_from_file("data/example.gaf");
     gaf::write_to_file(&gaf, "data/example.out.gaf")?;
     assert!(gaf == gaf::parse_from_file("data/example.out.gaf"));
     println!("GAF: {} records", gaf.len());

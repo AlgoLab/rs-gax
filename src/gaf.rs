@@ -3,6 +3,10 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 
+use gfa::gfa::GFA;
+
+use crate::vg;
+
 pub fn parse(data: impl Read) -> Vec<GafRecord> {
     let mut records = Vec::new();
     let mut string = String::new();
@@ -33,6 +37,13 @@ pub fn write_to_file(
 ) -> std::io::Result<()> {
     let f = File::create(path)?;
     write(records, f)
+}
+
+pub fn convert_gaf_to_gam(value: Vec<GafRecord>, graph: &GFA<usize, ()>) -> Vec<vg::Alignment> {
+    value
+        .into_iter()
+        .map(|g| vg::Alignment::convert_from_gaf(g, graph))
+        .collect()
 }
 
 /**
@@ -275,6 +286,101 @@ impl GafRecord {
         writeln!(f)?;
         Ok(())
     }
+
+    pub fn iter_cigar(&self) -> Vec<Cigar> {
+        if self.opt_fields.contains_key("cs") {
+            self.iter_cs()
+                .into_iter()
+                .map(|cs| {
+                    let first_char = &cs[..1];
+                    match first_char {
+                        ":" => Cigar {
+                            cat: first_char.into(),
+                            length: cs[1..].parse::<usize>().unwrap(),
+                            query: "".into(),
+                            target: "".into(),
+                        },
+                        "+" => {
+                            let query = &cs[1..];
+                            Cigar {
+                                cat: first_char.into(),
+                                length: query.len(),
+                                query: query.into(),
+                                target: "".into(),
+                            }
+                        }
+                        "-" => {
+                            let target = &cs[1..];
+                            Cigar {
+                                cat: first_char.into(),
+                                length: target.len(),
+                                query: "".into(),
+                                target: target.into(),
+                            }
+                        }
+                        "*" => Cigar {
+                            cat: first_char.into(),
+                            length: 1,
+                            query: cs[2..3].into(),
+                            target: cs[1..2].into(),
+                        },
+                        _ => unreachable!(),
+                    }
+                })
+                .collect()
+        } else {
+            self.iter_cg()
+        }
+    }
+
+    pub fn iter_cs(&self) -> Vec<&str> {
+        let Some(cigar_pair) = self.opt_fields.get("cs") else { return vec![]; };
+        let cs_cigar = &cigar_pair.1;
+        let mut splits = cs_cigar
+            .match_indices([':', '*', '-', '+'])
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        splits.push(cs_cigar.len());
+        splits
+            .windows(2)
+            .map(|indexes| &cs_cigar[indexes[0]..indexes[1]])
+            .collect()
+    }
+
+    pub fn iter_cg(&self) -> Vec<Cigar> {
+        let Some(cigar_pair) = self.opt_fields.get("cg") else { return vec![]; };
+        let cg_cigar = &cigar_pair.1;
+        // let cat = cg_cigar.split_once("MIDNSHPX=")
+        let mut splits = cg_cigar
+            .match_indices(['M', 'I', 'D', 'N', 'S', 'H', 'P', 'X', '='])
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        splits.push(cg_cigar.len());
+        splits
+            .windows(2)
+            .map(|indexes| {
+                let cat = cg_cigar[indexes[0]..indexes[1]].to_string();
+                Cigar {
+                    length: cat.len() as _,
+                    cat,
+                    query: "".into(),
+                    target: "".into(),
+                }
+            })
+            .collect()
+    }
+
+    pub fn convert_from_gam(value: vg::Alignment, graph: &GFA<usize, ()>) -> Self {
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Cigar {
+    pub cat: String,
+    pub length: usize,
+    pub query: String,
+    pub target: String,
 }
 
 #[cfg(test)]
