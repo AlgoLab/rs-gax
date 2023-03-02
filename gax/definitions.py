@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from typing import List, Optional
 
 
-@dataclass
+def my_dataclass(cls=None, **kwargs):
+    if sys.version_info >= (3, 10):
+        kwargs["slots"] = True
+    return dataclass(cls, **kwargs)
+
+
+@my_dataclass
 class GafStep:
     name: str = ""
     is_reverse: bool = False
@@ -14,7 +21,7 @@ class GafStep:
     end: Optional[int] = None
 
 
-@dataclass
+@my_dataclass
 class GafRecord:
     query_name: str = ""
     query_length: int = 0
@@ -31,7 +38,7 @@ class GafRecord:
     opt_fields: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Edit:
     """
     Edits describe how to generate a new string from elements in the graph. To
@@ -49,7 +56,7 @@ class Edit:
     sequence: str = ""
 
 
-@dataclass
+@my_dataclass
 class Position:
     node_id: int = 0
     offset: int = 0
@@ -57,7 +64,7 @@ class Position:
     name: str = ""
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Mapping:
     """
     A Mapping defines the relationship between a node in system and another
@@ -71,7 +78,7 @@ class Mapping:
     rank: int = 0
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Path:
     """
     Paths are walks through nodes defined by a series of `Edit`s. They can be
@@ -87,7 +94,7 @@ class Path:
     length: int = 0
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Alignment:
     """
     Alignments link query strings, such as other genomes or reads, to Paths.
@@ -130,7 +137,7 @@ class Alignment:
     annotation: dict = field(default_factory=dict)
 
 
-@dataclass(eq=False)
+@my_dataclass
 class MultipathAlignment:
     """
     A subgraph of the unrolled Graph in which each non-branching path is
@@ -164,7 +171,7 @@ class MultipathAlignment:
     annotation: dict = field(default_factory=dict)
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Subpath:
     """A non-branching path of a MultipathAlignment"""
 
@@ -187,7 +194,7 @@ class Subpath:
     """
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Connection:
     """
     An edge in a MultipathAlignment between Subpaths that may not be contiguous
@@ -201,7 +208,7 @@ class Connection:
     """the score of this connection"""
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Support:
     """Aggregates information about the reads supporting an allele."""
 
@@ -230,7 +237,7 @@ class Support:
     """TODO: What is this?"""
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Locus:
     """
     Describes a genetic locus with multiple possible alleles, a genotype, and
@@ -265,7 +272,7 @@ class Locus:
     """
 
 
-@dataclass(eq=False)
+@my_dataclass
 class Genotype:
     """Describes a genotype at a particular locus."""
 

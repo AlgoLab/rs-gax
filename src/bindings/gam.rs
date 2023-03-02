@@ -117,7 +117,7 @@ impl IntoPy<PyObject> for vg::Position {
 impl IntoPy<PyObject> for vg::Mapping {
     fn into_py(self, py: Python) -> PyObject {
         let def = py.import("gax").unwrap();
-        let o = def.getattr("Alignment").unwrap().call0().unwrap();
+        let o = def.getattr("Mapping").unwrap().call0().unwrap();
         o.setattr("position", self.position.into_py(py)).unwrap();
         o.setattr("edit", self.edit.into_py(py)).unwrap();
         o.setattr("rank", self.rank).unwrap();

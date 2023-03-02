@@ -6,7 +6,7 @@ impl IntoPy<PyObject> for gaf::GafRecord {
         let def = py.import("gax").unwrap();
         let o = def.getattr("GafRecord").unwrap().call0().unwrap();
         o.setattr("query_name", self.query_name).unwrap();
-        o.setattr("query_lenght", self.query_length).unwrap();
+        o.setattr("query_length", self.query_length).unwrap();
         o.setattr("query_start", self.query_start).unwrap();
         o.setattr("query_end", self.query_end).unwrap();
         o.setattr("path_length", self.path_length).unwrap();
