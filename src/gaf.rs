@@ -1,11 +1,12 @@
-use pyo3::FromPyObject;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read, Write};
-
+use crate::{graph::GFAExt, vg};
 use gfa::gfa::GFA;
-
-use crate::vg;
+use prost_types::value::Kind;
+use pyo3::FromPyObject;
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{Read, Write},
+};
 
 pub fn parse(data: impl Read) -> Vec<GafRecord> {
     let mut records = Vec::new();
@@ -37,13 +38,6 @@ pub fn write_to_file(
 ) -> std::io::Result<()> {
     let f = File::create(path)?;
     write(records, f)
-}
-
-pub fn convert_gaf_to_gam(value: Vec<GafRecord>, graph: &GFA<usize, ()>) -> Vec<vg::Alignment> {
-    value
-        .into_iter()
-        .map(|g| vg::Alignment::convert_from_gaf(g, graph))
-        .collect()
 }
 
 /**
@@ -90,7 +84,7 @@ impl GafStep {
  * One line of GAF as described here: https://github.com/lh3/gfatools/blob/master/doc/rGFA.md
  */
 
-#[derive(Debug, Clone, PartialEq, Eq, FromPyObject)]
+#[derive(Debug, Clone, PartialEq, Eq, FromPyObject, Default)]
 pub struct GafRecord {
     pub query_name: String, // Query sequence name
     pub query_length: i64,  // Query sequence length
@@ -206,7 +200,7 @@ impl GafRecord {
         let mapq = if token == MISSING_STRING {
             MISSING_INT as _
         } else {
-            token.parse::<i32>().unwrap().min(MISSING_INT as _)
+            token.parse::<i32>().unwrap()
         };
 
         let mut opt_fields = HashMap::new();
@@ -350,7 +344,6 @@ impl GafRecord {
     pub fn iter_cg(&self) -> Vec<Cigar> {
         let Some(cigar_pair) = self.opt_fields.get("cg") else { return vec![]; };
         let cg_cigar = &cigar_pair.1;
-        // let cat = cg_cigar.split_once("MIDNSHPX=")
         let mut splits = cg_cigar
             .match_indices(['M', 'I', 'D', 'N', 'S', 'H', 'P', 'X', '='])
             .map(|(i, _)| i)
@@ -370,9 +363,270 @@ impl GafRecord {
             .collect()
     }
 
-    pub fn convert_from_gam(value: vg::Alignment, graph: &GFA<usize, ()>) -> Self {
-        todo!()
+    pub fn convert_from_gam(value: &vg::Alignment, graph: &GFA<usize, ()>) -> Self {
+        let mut gaf = GafRecord {
+            query_name: value.name.clone(),
+            query_length: value.sequence.len() as _,
+            mapq: value.mapping_quality,
+            ..Default::default()
+        };
+
+        let translate_through = false; // TODO
+
+        if let Some(path) = value.path.clone() {
+            if !path.mapping.is_empty() {
+                gaf.query_start = 0;
+                gaf.query_end = value.sequence.len() as _;
+                gaf.strand = '+';
+                gaf.path_length = 0;
+                gaf.path_start = 0; // missing
+                gaf.matches = 0;
+
+                let mut cs_cigar_str = "".to_string();
+                let mut running_match_length = 0;
+                let mut running_deletion = false;
+                let mut total_to_len = 0;
+                let mut prev_offset = -1;
+                for (i, mapping) in path.mapping.iter().enumerate() {
+                    let position = mapping.position.as_ref().unwrap();
+                    let start_offset_on_node = position.offset;
+                    let mut offset = start_offset_on_node;
+                    let node_to_segment_offset = 0;
+                    let node_length = graph.node_to_length(position.node_id);
+                    let mut node_seq = "".to_string();
+                    let mut skip_step = false;
+                    let mut _prev_range = (0, false, 0, 0);
+
+                    if i > 0 && start_offset_on_node > 0 {
+                        let prev_position = &path.mapping[i - 1].position.as_ref().unwrap();
+                        if start_offset_on_node == prev_offset
+                            && position.node_id == prev_position.node_id
+                            && position.is_reverse == prev_position.is_reverse
+                        {
+                            skip_step = true;
+                        } else {
+                            if node_seq.is_empty() {
+                                node_seq =
+                                    graph.node_to_sequence(position.node_id, position.is_reverse);
+                            }
+
+                            let mut del_start_offset = 0;
+                            if position.node_id == prev_position.node_id {
+                                del_start_offset = prev_offset;
+                            }
+                            if start_offset_on_node > del_start_offset {
+                                if running_match_length > 0 {
+                                    cs_cigar_str += ":";
+                                    cs_cigar_str += &running_match_length.to_string();
+                                }
+                                if !running_deletion {
+                                    cs_cigar_str += "-";
+                                }
+                                cs_cigar_str += &node_seq[del_start_offset as usize
+                                    ..(start_offset_on_node - del_start_offset) as usize];
+                                running_deletion = true;
+                            }
+                        }
+                    }
+
+                    for edit in &mapping.edit {
+                        if edit.is_match() {
+                            gaf.matches += edit.from_length as i64;
+                            running_match_length += edit.from_length as i64;
+                            running_deletion = false;
+                        } else {
+                            if running_match_length > 0 {
+                                cs_cigar_str += ":";
+                                cs_cigar_str += &running_match_length.to_string();
+                                running_match_length = 0;
+                            }
+                            if edit.is_sub() {
+                                if node_seq.is_empty() {
+                                    node_seq = graph
+                                        .node_to_sequence(position.node_id, position.is_reverse);
+                                }
+
+                                for i in 0..edit.from_length as i64 {
+                                    cs_cigar_str += "*";
+                                    cs_cigar_str +=
+                                        &node_seq[(offset + i) as usize..(offset + i + 1) as usize];
+                                    cs_cigar_str += &edit.sequence[i as usize..i as usize + 1];
+                                }
+                                running_deletion = false;
+                            } else if edit.is_deletion() {
+                                if node_seq.is_empty() {
+                                    node_seq = graph
+                                        .node_to_sequence(position.node_id, position.is_reverse);
+                                }
+
+                                if !running_deletion {
+                                    cs_cigar_str += "-";
+                                }
+
+                                cs_cigar_str += &node_seq
+                                    [offset as usize..(offset + edit.from_length as i64) as usize];
+                                running_deletion = true;
+                            } else if edit.is_insertion() {
+                                cs_cigar_str += "+";
+                                cs_cigar_str += &edit.sequence;
+                                running_deletion = false;
+                            }
+                        }
+                        offset += edit.from_length as i64;
+                        total_to_len += edit.to_length as i64;
+                    }
+
+                    // range
+                    let range = (
+                        position.node_id,
+                        position.is_reverse,
+                        start_offset_on_node,
+                        offset - start_offset_on_node,
+                    );
+
+                    if translate_through {
+                        todo!();
+                    }
+
+                    if i == 0 {
+                        gaf.path_start = range.2;
+                    } else if i + 1 == path.mapping.len()
+                        && i > 0
+                        && path.mapping[i].edit.len() == 1
+                        && path.mapping[i].edit[0].is_insertion()
+                    {
+                        skip_step = true;
+                    }
+
+                    if i < path.mapping.len() - 1 && offset != node_length as _ {
+                        let next_position = path.mapping[i + 1].position.as_ref().unwrap();
+                        if position.node_id != next_position.node_id
+                            || position.is_reverse != next_position.is_reverse
+                        {
+                            if node_seq.is_empty() {
+                                node_seq =
+                                    graph.node_to_sequence(position.node_id, position.is_reverse);
+                            }
+                            if running_match_length > 0 {
+                                cs_cigar_str += ":";
+                                cs_cigar_str += &running_match_length.to_string();
+                                running_match_length = 0;
+                            }
+                            if !running_deletion {
+                                cs_cigar_str += "-";
+                            }
+                            dbg!(&node_seq.len());
+                            dbg!(&offset);
+                            cs_cigar_str += &node_seq[offset as usize..];
+                            running_deletion = true;
+                        } else {
+                            skip_step = true;
+                        }
+                    }
+
+                    if !skip_step {
+                        gaf.path_length += node_length as i64;
+
+                        if translate_through {
+                            todo!();
+                        }
+
+                        gaf.path.push(GafStep {
+                            name: range.0.to_string(),
+                            is_stable: false,
+                            is_reverse: range.1,
+                            is_interval: false,
+                            start: None,
+                            end: None,
+                        });
+                    }
+
+                    if i == path.mapping.len() - 1 {
+                        gaf.path_end = gaf.path_start;
+
+                        let offset_on_path_visit = offset + node_to_segment_offset;
+                        if gaf.path_length > offset_on_path_visit {
+                            gaf.path_end =
+                                gaf.path_length - 1 - (node_length as i64 - offset_on_path_visit);
+                        }
+                        if translate_through {
+                            todo!();
+                        }
+                    }
+                    _prev_range = range;
+                    prev_offset = offset;
+                }
+
+                if running_match_length > 0 {
+                    cs_cigar_str += ":";
+                    cs_cigar_str += &running_match_length.to_string();
+                }
+
+                if gaf.query_length == 0 && total_to_len > 0 {
+                    gaf.query_length = total_to_len;
+                    gaf.query_end = total_to_len;
+                }
+
+                gaf.block_length = gaf.query_length.max(gaf.path_end - gaf.path_start);
+
+                gaf.opt_fields
+                    .insert("cs".to_string(), ("Z".to_string(), cs_cigar_str));
+
+                if value.identity > 0.0 {
+                    let identity = ((1. - value.identity) * 10_000. + 0.5).floor() / 10000.;
+                    gaf.opt_fields
+                        .insert("dv".to_string(), ("f".to_string(), identity.to_string()));
+                }
+
+                if value.score > 0 {
+                    gaf.opt_fields
+                        .insert("AS".to_string(), ("i".to_string(), value.score.to_string()));
+                }
+
+                if !value.quality.is_empty() {
+                    gaf.opt_fields.insert(
+                        "bq".to_string(),
+                        (
+                            "Z".to_string(),
+                            string_quality_short_to_char(&value.quality),
+                        ),
+                    );
+                }
+
+                if let Some(annotation) = value.annotation.clone() {
+                    if annotation.fields.contains_key("proper_pair") {
+                        if let Some(Kind::BoolValue(is_properly_paired)) =
+                            annotation.fields["proper_pair"].kind.as_ref()
+                        {
+                            gaf.opt_fields.insert(
+                                "pd".to_string(),
+                                ("b".to_string(), is_properly_paired.to_string()),
+                            );
+                        }
+                        if let Some(Kind::StringValue(support)) =
+                            annotation.fields["support"].kind.as_ref()
+                        {
+                            gaf.opt_fields
+                                .insert("AD".to_string(), ("i".to_string(), support.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(fragment_next) = value.fragment_next.clone() {
+            gaf.opt_fields
+                .insert("fn".to_string(), ("Z".to_string(), fragment_next.name));
+        }
+        if let Some(fragment_prev) = value.fragment_prev.clone() {
+            gaf.opt_fields
+                .insert("fp".to_string(), ("Z".to_string(), fragment_prev.name));
+        }
+        gaf
     }
+}
+
+fn string_quality_short_to_char(quality: &[u8]) -> String {
+    quality.iter().map(|byte| (byte + 33) as char).collect()
 }
 
 #[derive(Debug, Clone, Default)]

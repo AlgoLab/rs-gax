@@ -1,12 +1,11 @@
-use std::{collections::BTreeMap, fs::File, io::prelude::*};
-
-use gfa::gfa::GFA;
-use prost_types::{value::Kind, Struct, Value};
-
 use crate::{
     framing::{self, vg, Error},
     gaf::GafRecord,
+    graph::GFAExt, complement,
 };
+use gfa::gfa::GFA;
+use prost_types::{value::Kind, Struct, Value};
+use std::{collections::BTreeMap, fs::File, io::prelude::*};
 
 pub fn parse(data: impl Read) -> Result<Vec<vg::Alignment>, Error> {
     framing::parse::<vg::Alignment>(data)
@@ -29,31 +28,8 @@ pub fn write_to_file(
     write(alignments, f)
 }
 
-pub fn node_to_length(graph: &GFA<usize, ()>, node_id: i64) -> usize {
-    let node = graph
-        .segments
-        .iter()
-        .find(|n| n.name == node_id as usize)
-        .unwrap();
-    node.sequence.len()
-}
-
-pub fn node_to_sequence(graph: &GFA<usize, ()>, node_id: i64, is_reverse: bool) -> String {
-    let node = graph
-        .segments
-        .iter()
-        .find(|n| n.name == node_id as usize)
-        .unwrap();
-    let sequence = String::from_utf8(node.sequence.clone()).unwrap();
-    if is_reverse {
-        sequence.chars().rev().collect()
-    } else {
-        sequence
-    }
-}
-
 impl vg::Alignment {
-    pub fn convert_from_gaf(value: GafRecord, graph: &GFA<usize, ()>) -> Self {
+    pub fn convert_from_gaf(value: &GafRecord, graph: &GFA<usize, ()>) -> Self {
         let mut mapping = value
             .path
             .iter()
@@ -75,16 +51,14 @@ impl vg::Alignment {
             })
             .collect::<Vec<_>>();
 
-        let mut annotations = BTreeMap::new();
+        let mut annotation = BTreeMap::new();
+        let mut sequence = String::new();
         if !value.path.is_empty() {
             let mut cur_mapping = 0;
             let mut cur_offset = value.path_start;
 
-            let mut cur_len = node_to_length(
-                graph,
-                mapping[cur_mapping].position.as_ref().unwrap().node_id,
-            );
-            let mut sequence = String::new();
+            let mut cur_len =
+                graph.node_to_length(mapping[cur_mapping].position.as_ref().unwrap().node_id);
             let mut from_cg = false;
             for cigar in value.iter_cigar() {
                 if !from_cg
@@ -99,21 +73,19 @@ impl vg::Alignment {
                     ":" | "M" | "=" | "X" => {
                         let mut match_len = cigar.length;
                         while match_len > 0 {
-                            let current_match = match_len.min(node_to_length(
-                                graph,
-                                mapping[cur_mapping].position.as_ref().unwrap().node_id
-                                    - cur_offset,
-                            ));
+                            let current_match = match_len.min(
+                                graph.node_to_length(
+                                    mapping[cur_mapping].position.as_ref().unwrap().node_id,
+                                ) - cur_offset as usize,
+                            );
                             let mut edit_sequence = String::new();
                             if cigar.cat == "X" {
                                 edit_sequence = "N".repeat(current_match);
                             }
                             let cur_position = mapping[cur_mapping].position.clone().unwrap();
-                            sequence += &node_to_sequence(
-                                graph,
-                                cur_position.node_id,
-                                cur_position.is_reverse,
-                            )[cur_offset as usize..current_match];
+                            sequence += &graph
+                                .node_to_sequence(cur_position.node_id, cur_position.is_reverse)
+                                [cur_offset as usize..cur_offset as usize + current_match];
 
                             let edit = vg::Edit {
                                 from_length: current_match as i32,
@@ -126,7 +98,7 @@ impl vg::Alignment {
                             if match_len > 0 {
                                 cur_mapping += 1;
                                 cur_offset = 0;
-                                cur_len = node_to_length(graph, cur_position.node_id);
+                                cur_len = graph.node_to_length(cur_position.node_id);
                             }
                         }
                     }
@@ -162,8 +134,7 @@ impl vg::Alignment {
                     "-" | "D" => {
                         let mut del_len = cigar.length;
                         while del_len > 0 {
-                            let current_del = del_len.min(node_to_length(
-                                graph,
+                            let current_del = del_len.min(graph.node_to_length(
                                 mapping[cur_mapping].position.as_ref().unwrap().node_id
                                     - cur_offset,
                             ));
@@ -178,8 +149,7 @@ impl vg::Alignment {
                             if del_len > 0 {
                                 cur_mapping += 1;
                                 cur_offset = 0;
-                                cur_len = node_to_length(
-                                    graph,
+                                cur_len = graph.node_to_length(
                                     mapping[cur_mapping].position.as_ref().unwrap().node_id,
                                 );
                             }
@@ -201,8 +171,7 @@ impl vg::Alignment {
                     cur_mapping += 1;
                     cur_offset = 0;
                     if cur_mapping < mapping.len() {
-                        cur_len = node_to_length(
-                            graph,
+                        cur_len = graph.node_to_length(
                             mapping[cur_mapping].position.as_ref().unwrap().node_id,
                         );
                     }
@@ -211,7 +180,7 @@ impl vg::Alignment {
 
             if from_cg {
                 // remember that we came from a lossy cg-cigar -> GAM conversion path
-                annotations.insert(
+                annotation.insert(
                     "from_cg".to_string(),
                     Value {
                         kind: Some(Kind::BoolValue(true)),
@@ -225,17 +194,22 @@ impl vg::Alignment {
             ..Default::default()
         };
 
+        let annotation = if annotation.is_empty() {
+            None
+        } else {
+            Some(Struct { fields: annotation })
+        };
+
         let mut alignment = Self {
             name: value.query_name.clone(),
+            sequence: complement(sequence),
             path: Some(path),
             mapping_quality: value.mapq,
-            annotation: Some(Struct {
-                fields: annotations,
-            }),
+            annotation,
             ..Default::default()
         };
 
-        for (key, value) in value.opt_fields {
+        for (key, value) in value.opt_fields.clone() {
             match key.as_str() {
                 "dv" => {
                     // get the identity from the dv divergence field
@@ -272,7 +246,7 @@ impl vg::Alignment {
                         );
                     }
                 }
-                _ => unreachable!(),
+                _ => (),
             }
         }
 
