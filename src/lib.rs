@@ -45,17 +45,3 @@ pub fn convert_gaf_to_gam(value: &[GafRecord], graph: &GFA<usize, ()>) -> Vec<vg
         .map(|g| vg::Alignment::convert_from_gaf(g, graph))
         .collect()
 }
-
-pub fn complement(sequence: String) -> String {
-    sequence.chars().map(complement_char).collect()
-}
-
-pub fn complement_char(c: char) -> char {
-    match c {
-        'A' => 'T',
-        'T' => 'A',
-        'C' => 'G',
-        'G' => 'C',
-        _ => panic!("Invalid base: {}", c),
-    }
-}

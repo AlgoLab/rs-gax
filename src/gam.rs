@@ -1,7 +1,7 @@
 use crate::{
     framing::{self, vg, Error},
     gaf::GafRecord,
-    graph::GFAExt, complement,
+    graph::GFAExt,
 };
 use gfa::gfa::GFA;
 use prost_types::{value::Kind, Struct, Value};
@@ -26,6 +26,20 @@ pub fn write_to_file(
 ) -> Result<(), Error> {
     let f = File::create(path)?;
     write(alignments, f)
+}
+
+pub fn complement(sequence: String) -> String {
+    sequence.chars().map(complement_char).collect()
+}
+
+pub fn complement_char(c: char) -> char {
+    match c {
+        'A' => 'T',
+        'T' => 'A',
+        'C' => 'G',
+        'G' => 'C',
+        _ => panic!("Invalid base: {}", c),
+    }
 }
 
 impl vg::Alignment {
@@ -200,8 +214,13 @@ impl vg::Alignment {
             Some(Struct { fields: annotation })
         };
 
+        let mut name = value.query_name.clone();
+        if name == "*" {
+            name = String::new();
+        }
+
         let mut alignment = Self {
-            name: value.query_name.clone(),
+            name,
             sequence: complement(sequence),
             path: Some(path),
             mapping_quality: value.mapq,
@@ -257,6 +276,8 @@ impl vg::Alignment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{convert_gaf_to_gam, gaf};
+    use gfa::parser::GFAParser;
     use prost_types::{value::Kind, Value};
     use std::fs::File;
 
@@ -328,12 +349,27 @@ mod tests {
         assert_eq!(first, alignment);
     }
 
-    // #[test]
-    // fn convert() {
-    //     let gam = gam::parse_from_file("data/convert.gam").unwrap();
-    //     let gaf = gaf::parse_from_file("data/convert.gaf");
-    //     let gam_from_gaf: Vec<framing::vg::Alignment> =
-    //         gaf.into_iter().map(|record| record.into()).collect();
-    //     assert_eq!(gam, gam_from_gaf);
-    // }
+    #[test]
+    fn convert_from_gaf() {
+        use pretty_assertions::assert_eq;
+        let graph: GFA<usize, ()> = GFAParser::new().parse_file("data/convert.gfa").unwrap();
+        let gam = parse_from_file("data/convert.gam").unwrap();
+        let gaf = gaf::parse_from_file("data/convert.gaf");
+
+        let generated_gam = convert_gaf_to_gam(&gaf, &graph);
+
+        assert_eq!(gam.len(), generated_gam.len());
+
+        let mut match_count = 0;
+        let mut to_check = generated_gam.clone();
+        for item in &gam {
+            if let Some(index) = to_check.iter().position(|e| e.path == item.path) {
+                to_check.remove(index);
+                match_count += 1;
+            } else {
+                panic!("Item not found");
+            }
+        }
+        assert_eq!(gam.len(), match_count);
+    }
 }

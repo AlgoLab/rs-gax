@@ -1,10 +1,10 @@
 use crate::framing;
 use pyo3::prelude::*;
 
+mod dict;
 mod gaf;
 mod gam;
 mod gamp;
-mod dict;
 
 impl From<framing::Error> for PyErr {
     fn from(e: framing::Error) -> Self {

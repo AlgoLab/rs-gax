@@ -364,14 +364,17 @@ impl GafRecord {
     }
 
     pub fn convert_from_gam(value: &vg::Alignment, graph: &GFA<usize, ()>) -> Self {
+        let mut query_name = value.name.clone();
+        if query_name.is_empty() {
+            query_name = MISSING_STRING.into();
+        }
+
         let mut gaf = GafRecord {
-            query_name: value.name.clone(),
+            query_name,
             query_length: value.sequence.len() as _,
             mapq: value.mapping_quality,
             ..Default::default()
         };
-
-        let translate_through = false; // TODO
 
         if let Some(path) = value.path.clone() {
             if !path.mapping.is_empty() {
@@ -386,7 +389,7 @@ impl GafRecord {
                 let mut running_match_length = 0;
                 let mut running_deletion = false;
                 let mut total_to_len = 0;
-                let mut prev_offset = -1;
+                let mut prev_offset = 0;
                 for (i, mapping) in path.mapping.iter().enumerate() {
                     let position = mapping.position.as_ref().unwrap();
                     let start_offset_on_node = position.offset;
@@ -484,10 +487,6 @@ impl GafRecord {
                         offset - start_offset_on_node,
                     );
 
-                    if translate_through {
-                        todo!();
-                    }
-
                     if i == 0 {
                         gaf.path_start = range.2;
                     } else if i + 1 == path.mapping.len()
@@ -515,8 +514,6 @@ impl GafRecord {
                             if !running_deletion {
                                 cs_cigar_str += "-";
                             }
-                            dbg!(&node_seq.len());
-                            dbg!(&offset);
                             cs_cigar_str += &node_seq[offset as usize..];
                             running_deletion = true;
                         } else {
@@ -526,10 +523,6 @@ impl GafRecord {
 
                     if !skip_step {
                         gaf.path_length += node_length as i64;
-
-                        if translate_through {
-                            todo!();
-                        }
 
                         gaf.path.push(GafStep {
                             name: range.0.to_string(),
@@ -548,9 +541,6 @@ impl GafRecord {
                         if gaf.path_length > offset_on_path_visit {
                             gaf.path_end =
                                 gaf.path_length - 1 - (node_length as i64 - offset_on_path_visit);
-                        }
-                        if translate_through {
-                            todo!();
                         }
                     }
                     _prev_range = range;
@@ -640,6 +630,8 @@ pub struct Cigar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{convert_gam_to_gaf, gam};
+    use gfa::parser::GFAParser;
 
     #[test]
     fn gaf_read() {
@@ -648,5 +640,27 @@ mod tests {
         assert_eq!(rec.query_name, "read2");
         assert_eq!(rec.query_length, 7);
         assert_eq!(rec.strand, '-');
+    }
+
+    #[test]
+    fn convert_from_gam() {
+        use pretty_assertions::assert_eq;
+        let graph: GFA<usize, ()> = GFAParser::new().parse_file("data/convert.gfa").unwrap();
+        let gam = gam::parse_from_file("data/convert.gam").unwrap();
+        let gaf = parse_from_file("data/convert.gaf");
+
+        let generated_gaf = convert_gam_to_gaf(&gam, &graph);
+
+        assert_eq!(gaf.len(), generated_gaf.len());
+
+        let mut match_count = 0;
+        let mut to_check = generated_gaf.clone();
+        for item in &gaf {
+            if let Some(index) = to_check.iter().position(|e| e == item) {
+                to_check.remove(index);
+                match_count += 1;
+            }
+        }
+        assert_eq!(gaf.len(), match_count);
     }
 }
