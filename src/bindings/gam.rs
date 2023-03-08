@@ -179,6 +179,13 @@ impl FromPyObject<'_> for vg::Alignment {
             None
         };
 
+        let annotation = ob.getattr("annotation")?;
+        let annotation = if !annotation.is_none() {
+            Some(pydict_to_struct(annotation.extract()?)?)
+        } else {
+            None
+        };
+
         Ok(Self {
             sequence: ob.getattr("sequence")?.extract()?,
             path: ob.getattr("path")?.extract()?,
@@ -214,7 +221,7 @@ impl FromPyObject<'_> for vg::Alignment {
             time_used: ob.getattr("time_used")?.extract()?,
             to_correct: ob.getattr("to_correct")?.extract()?,
             correctly_mapped: ob.getattr("correctly_mapped")?.extract()?,
-            annotation: Some(pydict_to_struct(ob.getattr("annotation")?.extract()?)?),
+            annotation,
         })
     }
 }
