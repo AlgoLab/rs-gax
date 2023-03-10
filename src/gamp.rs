@@ -1,6 +1,8 @@
-use std::{fs::File, io::prelude::*};
-
 use crate::framing::{self, vg, Error};
+use std::{
+    fs::File,
+    io::{Read, Write},
+};
 
 pub fn parse(data: impl Read) -> Result<Vec<vg::MultipathAlignment>, Error> {
     framing::parse::<vg::MultipathAlignment>(data)
@@ -23,6 +25,26 @@ pub fn write_to_file(
 ) -> Result<(), Error> {
     let f = File::create(path)?;
     write(alignments, f)
+}
+
+impl From<vg::Alignment> for vg::MultipathAlignment {
+    fn from(value: vg::Alignment) -> Self {
+        Self {
+            sequence: value.sequence,
+            quality: value.quality,
+            name: value.name,
+            sample_name: value.sample_name,
+            read_group: value.read_group,
+            subpath: vec![vg::Subpath {
+                path: value.path,
+                score: value.score,
+                ..Default::default()
+            }],
+            mapping_quality: value.mapping_quality,
+            annotation: value.annotation,
+            ..Default::default()
+        }
+    }
 }
 
 #[cfg(test)]

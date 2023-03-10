@@ -273,6 +273,27 @@ impl vg::Alignment {
     }
 }
 
+impl From<vg::MultipathAlignment> for vg::Alignment {
+    fn from(value: vg::MultipathAlignment) -> Self {
+        let subpath = value.subpath.into_iter().max_by_key(|s| s.score);
+        let score = subpath.as_ref().map(|s| s.score).unwrap_or(0);
+        let path = subpath.and_then(|s| s.path);
+
+        Self {
+            sequence: value.sequence,
+            quality: value.quality,
+            name: value.name,
+            sample_name: value.sample_name,
+            read_group: value.read_group,
+            path,
+            mapping_quality: value.mapping_quality,
+            annotation: value.annotation,
+            score,
+            ..Default::default()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
