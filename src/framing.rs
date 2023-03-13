@@ -28,7 +28,7 @@ impl SupportedFormat for vg::MultipathAlignment {
     }
 }
 
-pub(crate) fn parse<Message: SupportedFormat>(data: impl Read) -> Result<Vec<Message>, Error> {
+pub(crate) fn parse<Message: SupportedFormat>(data: impl Read) -> Result<Vec<Message>, FramingError> {
     // Decompress data
     let mut decoder = MultiGzDecoder::new(data);
     let mut data = vec![];
@@ -47,7 +47,7 @@ pub(crate) fn parse<Message: SupportedFormat>(data: impl Read) -> Result<Vec<Mes
         let type_tag = String::from_utf8(type_tag)?;
         // Should always be equal to GAM/MGAM
         if type_tag != Message::type_tag() {
-            return Err(Error::InvalidTypeTag(type_tag, Message::type_tag()));
+            return Err(FramingError::InvalidTypeTag(type_tag, Message::type_tag()));
         }
 
         // Read all messages in the group
@@ -66,7 +66,7 @@ pub(crate) fn parse<Message: SupportedFormat>(data: impl Read) -> Result<Vec<Mes
 pub(crate) fn write<Message: SupportedFormat>(
     alignments: &[Message],
     mut out_file: impl Write,
-) -> Result<(), Error> {
+) -> Result<(), FramingError> {
     let alignments = alignments.to_owned();
     let mut buf = vec![];
 
@@ -87,7 +87,7 @@ pub(crate) fn write<Message: SupportedFormat>(
 fn write_group<Message: SupportedFormat>(
     alignments: &[Message],
     mut file: impl Write,
-) -> Result<(), Error> {
+) -> Result<(), FramingError> {
     let mut buf = vec![];
     // Write number of messages in the group
     encode_varint(alignments.len() as u64 + 1, &mut buf);
@@ -113,7 +113,7 @@ fn write_group<Message: SupportedFormat>(
 
 #[derive(thiserror::Error, Debug)]
 #[error(transparent)]
-pub enum Error {
+pub enum FramingError {
     Io(#[from] std::io::Error),
     Utf8(#[from] std::string::FromUtf8Error),
     ProstDecode(#[from] prost::DecodeError),

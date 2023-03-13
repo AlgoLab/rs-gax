@@ -8,9 +8,9 @@ fn main() {
 
 fn main_() -> Result<(), Box<dyn std::error::Error>> {
     // GAF I/O
-    let gaf = gaf::parse_from_file("data/example.gaf");
+    let gaf = gaf::parse_from_file("data/example.gaf")?;
     gaf::write_to_file(&gaf, "data/example.out.gaf")?;
-    assert!(gaf == gaf::parse_from_file("data/example.out.gaf"));
+    assert!(gaf == gaf::parse_from_file("data/example.out.gaf")?);
     println!("GAF: {} records", gaf.len());
 
     // GAM I/O

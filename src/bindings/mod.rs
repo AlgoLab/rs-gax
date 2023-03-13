@@ -1,4 +1,8 @@
-use crate::{framing, gaf::GafRecord, vg};
+use crate::{
+    framing,
+    gaf::{GafError, GafRecord},
+    vg,
+};
 use graph::GFAWrapper;
 use pyo3::prelude::*;
 
@@ -8,18 +12,36 @@ mod gam;
 mod gamp;
 mod graph;
 
-impl From<framing::Error> for PyErr {
-    fn from(e: framing::Error) -> Self {
+impl From<framing::FramingError> for PyErr {
+    fn from(e: framing::FramingError) -> Self {
         match e {
-            framing::Error::Io(e) => e.into(),
-            framing::Error::Utf8(e) => e.into(),
-            framing::Error::ProstDecode(e) => {
+            framing::FramingError::Io(e) => e.into(),
+            framing::FramingError::Utf8(e) => e.into(),
+            framing::FramingError::ProstDecode(e) => {
                 PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Error: {}", e))
             }
-            framing::Error::ProstEncode(e) => {
+            framing::FramingError::ProstEncode(e) => {
                 PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Error: {}", e))
             }
-            framing::Error::InvalidTypeTag(_, _) => {
+            framing::FramingError::InvalidTypeTag(..) => {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Error: {}", e))
+            }
+        }
+    }
+}
+
+impl From<GafError> for PyErr {
+    fn from(e: GafError) -> Self {
+        match e {
+            GafError::Io(e) => e.into(),
+            GafError::ParseInt(e) => e.into(),
+            GafError::MissingStart => {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Error: {}", e))
+            }
+            GafError::MissingEnd => {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Error: {}", e))
+            }
+            GafError::MissingToken => {
                 PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Error: {}", e))
             }
         }

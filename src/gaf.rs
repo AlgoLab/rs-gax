@@ -1,4 +1,4 @@
-use crate::{graph::GFAExt, vg};
+use crate::{graph::GFAExt, vg, ConversionError};
 use gfa::gfa::GFA;
 use prost_types::value::Kind;
 use pyo3::FromPyObject;
@@ -8,24 +8,32 @@ use std::{
     io::{Read, Write},
 };
 
-pub fn parse(data: impl Read) -> Vec<GafRecord> {
-    let mut records = Vec::new();
-    let mut string = String::new();
-    let mut reader = std::io::BufReader::new(data);
-    reader.read_to_string(&mut string).unwrap();
-    for line in string.lines() {
-        let gr = GafRecord::parse(line);
-        records.push(gr);
-    }
-    records
+#[derive(thiserror::Error, Debug)]
+#[error(transparent)]
+pub enum GafError {
+    Io(#[from] std::io::Error),
+    ParseInt(#[from] std::num::ParseIntError),
+    #[error("Missing start in interval step")]
+    MissingStart,
+    #[error("Missing end in interval step")]
+    MissingEnd,
+    #[error("Not enough tokens in line")]
+    MissingToken,
 }
 
-pub fn parse_from_file(path: impl AsRef<std::path::Path>) -> Vec<GafRecord> {
-    let f = File::open(path).unwrap();
+pub fn parse(data: impl Read) -> Result<Vec<GafRecord>, GafError> {
+    let mut string = String::new();
+    let mut reader = std::io::BufReader::new(data);
+    reader.read_to_string(&mut string)?;
+    string.lines().map(|line| GafRecord::parse(line)).collect()
+}
+
+pub fn parse_from_file(path: impl AsRef<std::path::Path>) -> Result<Vec<GafRecord>, GafError> {
+    let f = File::open(path)?;
     parse(f)
 }
 
-pub fn write(records: &Vec<GafRecord>, mut out_file: impl Write) -> std::io::Result<()> {
+pub fn write(records: &Vec<GafRecord>, mut out_file: impl Write) -> Result<(), GafError> {
     for record in records {
         record.write(&mut out_file)?;
     }
@@ -35,7 +43,7 @@ pub fn write(records: &Vec<GafRecord>, mut out_file: impl Write) -> std::io::Res
 pub fn write_to_file(
     records: &Vec<GafRecord>,
     path: impl AsRef<std::path::Path>,
-) -> std::io::Result<()> {
+) -> Result<(), GafError> {
     let f = File::create(path)?;
     write(records, f)
 }
@@ -64,7 +72,7 @@ impl GafStep {
     /*
      * Write a GAF Step to a stream
      */
-    fn write(&self, mut f: impl Write) -> std::io::Result<()> {
+    fn write(&self, mut f: impl Write) -> Result<(), GafError> {
         if !self.is_stable || self.is_interval {
             if self.is_reverse {
                 write!(f, "<")?;
@@ -74,7 +82,12 @@ impl GafStep {
         }
         write!(f, "{}", self.name)?;
         if self.is_interval {
-            write!(f, ":{}-{}", self.start.unwrap(), self.end.unwrap())?;
+            write!(
+                f,
+                ":{}-{}",
+                self.start.ok_or(GafError::MissingStart)?,
+                self.end.ok_or(GafError::MissingEnd)?
+            )?;
         }
         Ok(())
     }
@@ -104,33 +117,33 @@ pub struct GafRecord {
     pub opt_fields: HashMap<String, (String, String)>,
 }
 
-fn number_or_missing(token: &str) -> i64 {
-    if token == "*" {
+fn number_or_missing(token: &str) -> Result<i64, GafError> {
+    Ok(if token == "*" {
         MISSING_INT
     } else {
-        token.parse::<i64>().unwrap()
-    }
+        token.parse::<i64>()?
+    })
 }
 
 impl GafRecord {
     /**
      * Parse a single GAF record
      */
-    pub fn parse(line: &str) -> Self {
+    pub fn parse(line: &str) -> Result<Self, GafError> {
         let mut split = line.split('\t');
 
-        let mut token = split.next().unwrap();
+        let mut token = split.next().ok_or(GafError::MissingToken)?;
         let query_name = token.to_string();
-        token = split.next().unwrap();
-        let query_length = number_or_missing(token);
-        token = split.next().unwrap();
-        let query_start = number_or_missing(token);
-        token = split.next().unwrap();
-        let query_end = number_or_missing(token);
-        token = split.next().unwrap();
+        token = split.next().ok_or(GafError::MissingToken)?;
+        let query_length = number_or_missing(token)?;
+        token = split.next().ok_or(GafError::MissingToken)?;
+        let query_start = number_or_missing(token)?;
+        token = split.next().ok_or(GafError::MissingToken)?;
+        let query_end = number_or_missing(token)?;
+        token = split.next().ok_or(GafError::MissingToken)?;
         let strand = token.chars().next().unwrap();
 
-        token = split.next().unwrap();
+        token = split.next().ok_or(GafError::MissingToken)?;
         let mut path = Vec::new();
         if token.to_string().starts_with(['<', '>']) {
             // orientIntv
@@ -147,8 +160,8 @@ impl GafRecord {
                         let Some(dash) = step_token[colon..].find('-') else {
                             panic!("Error parsing GAF range of {}", step_token)
                         };
-                        let start = step_token[colon + 1..colon + dash].parse::<i64>().unwrap();
-                        let end = step_token[colon + 1 + dash..].parse::<i64>().unwrap();
+                        let start = step_token[colon + 1..colon + dash].parse::<i64>()?;
+                        let end = step_token[colon + 1 + dash..].parse::<i64>()?;
                         // stableIntv
                         GafStep {
                             name: (step_token[1..colon - 1]).to_string(),
@@ -185,22 +198,22 @@ impl GafRecord {
             });
         }
 
-        token = split.next().unwrap();
-        let path_length = number_or_missing(token);
-        token = split.next().unwrap();
-        let path_start = number_or_missing(token);
-        token = split.next().unwrap();
-        let path_end = number_or_missing(token);
-        token = split.next().unwrap();
-        let matches = number_or_missing(token);
-        token = split.next().unwrap();
-        let block_length = number_or_missing(token);
+        token = split.next().ok_or(GafError::MissingToken)?;
+        let path_length = number_or_missing(token)?;
+        token = split.next().ok_or(GafError::MissingToken)?;
+        let path_start = number_or_missing(token)?;
+        token = split.next().ok_or(GafError::MissingToken)?;
+        let path_end = number_or_missing(token)?;
+        token = split.next().ok_or(GafError::MissingToken)?;
+        let matches = number_or_missing(token)?;
+        token = split.next().ok_or(GafError::MissingToken)?;
+        let block_length = number_or_missing(token)?;
 
-        token = split.next().unwrap();
+        token = split.next().ok_or(GafError::MissingToken)?;
         let mapq = if token == MISSING_STRING {
             MISSING_INT as _
         } else {
-            token.parse::<i32>().unwrap()
+            token.parse::<i32>()?
         };
 
         let mut opt_fields = HashMap::new();
@@ -216,7 +229,7 @@ impl GafRecord {
             }
         }
 
-        Self {
+        Ok(Self {
             query_name,
             query_length,
             query_start,
@@ -230,13 +243,13 @@ impl GafRecord {
             strand,
             path,
             opt_fields,
-        }
+        })
     }
 
     /**
      * Write a GAF record to a stream
      */
-    pub fn write(&self, mut f: impl Write) -> std::io::Result<()> {
+    pub fn write(&self, mut f: impl Write) -> Result<(), GafError> {
         if self.query_name.is_empty() {
             write!(f, "{}\t", MISSING_STRING)?;
         } else {
@@ -286,15 +299,15 @@ impl GafRecord {
             self.iter_cs()
                 .into_iter()
                 .map(|cs| {
-                    let first_char = &cs[..1];
+                    let first_char = cs.chars().next().unwrap();
                     match first_char {
-                        ":" => Cigar {
-                            cat: first_char.into(),
+                        ':' => Cigar {
+                            cat: first_char,
                             length: cs[1..].parse::<usize>().unwrap(),
                             query: "".into(),
                             target: "".into(),
                         },
-                        "+" => {
+                        '+' => {
                             let query = &cs[1..];
                             Cigar {
                                 cat: first_char.into(),
@@ -303,7 +316,7 @@ impl GafRecord {
                                 target: "".into(),
                             }
                         }
-                        "-" => {
+                        '-' => {
                             let target = &cs[1..];
                             Cigar {
                                 cat: first_char.into(),
@@ -312,7 +325,7 @@ impl GafRecord {
                                 target: target.into(),
                             }
                         }
-                        "*" => Cigar {
+                        '*' => Cigar {
                             cat: first_char.into(),
                             length: 1,
                             query: cs[2..3].into(),
@@ -352,9 +365,9 @@ impl GafRecord {
         splits
             .windows(2)
             .map(|indexes| {
-                let cat = cg_cigar[indexes[0]..indexes[1]].to_string();
+                let cat = cg_cigar[indexes[0]..indexes[1]].chars().next().unwrap();
                 Cigar {
-                    length: cat.len() as _,
+                    length: 1,
                     cat,
                     query: "".into(),
                     target: "".into(),
@@ -363,7 +376,10 @@ impl GafRecord {
             .collect()
     }
 
-    pub fn convert_from_gam(value: &vg::Alignment, graph: &GFA<usize, ()>) -> Self {
+    pub fn convert_from_gam(
+        value: &vg::Alignment,
+        graph: &GFA<usize, ()>,
+    ) -> Result<Self, ConversionError> {
         let mut query_name = value.name.clone();
         if query_name.is_empty() {
             query_name = MISSING_STRING.into();
@@ -391,7 +407,10 @@ impl GafRecord {
                 let mut total_to_len = 0;
                 let mut prev_offset = 0;
                 for (i, mapping) in path.mapping.iter().enumerate() {
-                    let position = mapping.position.as_ref().unwrap();
+                    let position = mapping
+                        .position
+                        .as_ref()
+                        .ok_or(ConversionError::MissingPosition)?;
                     let start_offset_on_node = position.offset;
                     let mut offset = start_offset_on_node;
                     let node_to_segment_offset = 0;
@@ -401,7 +420,10 @@ impl GafRecord {
                     let mut _prev_range = (0, false, 0, 0);
 
                     if i > 0 && start_offset_on_node > 0 {
-                        let prev_position = &path.mapping[i - 1].position.as_ref().unwrap();
+                        let prev_position = &path.mapping[i - 1]
+                            .position
+                            .as_ref()
+                            .ok_or(ConversionError::MissingPosition)?;
                         if start_offset_on_node == prev_offset
                             && position.node_id == prev_position.node_id
                             && position.is_reverse == prev_position.is_reverse
@@ -497,8 +519,11 @@ impl GafRecord {
                         skip_step = true;
                     }
 
-                    if i < path.mapping.len() - 1 && offset != node_length as _ {
-                        let next_position = path.mapping[i + 1].position.as_ref().unwrap();
+                    if i < path.mapping.len() - 1 && offset != node_length as i64 {
+                        let next_position = path.mapping[i + 1]
+                            .position
+                            .as_ref()
+                            .ok_or(ConversionError::MissingPosition)?;
                         if position.node_id != next_position.node_id
                             || position.is_reverse != next_position.is_reverse
                         {
@@ -611,7 +636,7 @@ impl GafRecord {
             gaf.opt_fields
                 .insert("fp".to_string(), ("Z".to_string(), fragment_prev.name));
         }
-        gaf
+        Ok(gaf)
     }
 }
 
@@ -621,7 +646,7 @@ fn string_quality_short_to_char(quality: &[u8]) -> String {
 
 #[derive(Debug, Clone, Default)]
 pub struct Cigar {
-    pub cat: String,
+    pub cat: char,
     pub length: usize,
     pub query: String,
     pub target: String,
@@ -634,22 +659,23 @@ mod tests {
     use gfa::parser::GFAParser;
 
     #[test]
-    fn gaf_read() {
+    fn gaf_read() -> Result<(), Box<dyn std::error::Error>> {
         let line: &str = "read2\t7\t0\t7\t-\t>chr1:5-8>foo:8-16\t11\t1\t8\t7\t7\t60\tcg:Z:7M";
-        let rec: GafRecord = GafRecord::parse(line);
+        let rec: GafRecord = GafRecord::parse(line)?;
         assert_eq!(rec.query_name, "read2");
         assert_eq!(rec.query_length, 7);
         assert_eq!(rec.strand, '-');
+        Ok(())
     }
 
     #[test]
-    fn convert_from_gam() {
+    fn convert_from_gam() -> Result<(), Box<dyn std::error::Error>> {
         use pretty_assertions::assert_eq;
-        let graph: GFA<usize, ()> = GFAParser::new().parse_file("data/convert.gfa").unwrap();
-        let gam = gam::parse_from_file("data/convert.gam").unwrap();
-        let gaf = parse_from_file("data/convert.gaf");
+        let graph: GFA<usize, ()> = GFAParser::new().parse_file("data/convert.gfa")?;
+        let gam = gam::parse_from_file("data/convert.gam")?;
+        let gaf = parse_from_file("data/convert.gaf")?;
 
-        let generated_gaf = convert_gam_to_gaf(&gam, &graph);
+        let generated_gaf = convert_gam_to_gaf(&gam, &graph)?;
 
         assert_eq!(gaf.len(), generated_gaf.len());
 
@@ -662,5 +688,6 @@ mod tests {
             }
         }
         assert_eq!(gaf.len(), match_count);
+        Ok(())
     }
 }

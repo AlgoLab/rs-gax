@@ -1,29 +1,32 @@
 use crate::{
-    framing::{self, vg, Error},
+    framing::{self, vg, FramingError},
     gaf::GafRecord,
     graph::GFAExt,
+    ConversionError,
 };
 use gfa::gfa::GFA;
 use prost_types::{value::Kind, Struct, Value};
 use std::{collections::BTreeMap, fs::File, io::prelude::*};
 
-pub fn parse(data: impl Read) -> Result<Vec<vg::Alignment>, Error> {
+pub fn parse(data: impl Read) -> Result<Vec<vg::Alignment>, FramingError> {
     framing::parse::<vg::Alignment>(data)
 }
 
-pub fn parse_from_file(path: impl AsRef<std::path::Path>) -> Result<Vec<vg::Alignment>, Error> {
+pub fn parse_from_file(
+    path: impl AsRef<std::path::Path>,
+) -> Result<Vec<vg::Alignment>, FramingError> {
     let f = File::open(path)?;
     parse(f)
 }
 
-pub fn write(alignments: &[vg::Alignment], mut out_file: impl Write) -> Result<(), Error> {
+pub fn write(alignments: &[vg::Alignment], mut out_file: impl Write) -> Result<(), FramingError> {
     framing::write::<vg::Alignment>(alignments, &mut out_file)
 }
 
 pub fn write_to_file(
     alignments: &[vg::Alignment],
     path: impl AsRef<std::path::Path>,
-) -> Result<(), Error> {
+) -> Result<(), FramingError> {
     let f = File::create(path)?;
     write(alignments, f)
 }
@@ -43,27 +46,30 @@ pub fn complement_char(c: char) -> char {
 }
 
 impl vg::Alignment {
-    pub fn convert_from_gaf(value: &GafRecord, graph: &GFA<usize, ()>) -> Self {
+    pub fn convert_from_gaf(
+        value: &GafRecord,
+        graph: &GFA<usize, ()>,
+    ) -> Result<Self, ConversionError> {
         let mut mapping = value
             .path
             .iter()
             .enumerate()
-            .map(|(rank, step)| {
+            .map(|(rank, step)| -> Result<_, _> {
                 let offset = if rank == 0 { value.path_start } else { 0 };
                 let position = vg::Position {
-                    node_id: step.name.parse::<i64>().unwrap(),
+                    node_id: step.name.parse::<i64>()?,
                     offset,
                     is_reverse: step.is_reverse,
                     ..Default::default()
                 };
 
-                vg::Mapping {
+                Ok(vg::Mapping {
                     position: Some(position),
                     rank: rank as i64 + 1,
                     ..Default::default()
-                }
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, ConversionError>>()?;
 
         let mut annotation = BTreeMap::new();
         let mut sequence = String::new();
@@ -71,32 +77,44 @@ impl vg::Alignment {
             let mut cur_mapping = 0;
             let mut cur_offset = value.path_start;
 
-            let mut cur_len =
-                graph.node_to_length(mapping[cur_mapping].position.as_ref().unwrap().node_id);
+            let mut cur_len = graph.node_to_length(
+                mapping[cur_mapping]
+                    .position
+                    .as_ref()
+                    .ok_or(ConversionError::MissingPosition)?
+                    .node_id,
+            );
             let mut from_cg = false;
             for cigar in value.iter_cigar() {
                 if !from_cg
-                    && cigar.cat != ":"
-                    && cigar.cat != "+"
-                    && cigar.cat != "-"
-                    && cigar.cat != "*"
+                    && cigar.cat != ':'
+                    && cigar.cat != '+'
+                    && cigar.cat != '-'
+                    && cigar.cat != '*'
                 {
                     from_cg = true;
                 }
-                match cigar.cat.as_str() {
-                    ":" | "M" | "=" | "X" => {
+                match cigar.cat {
+                    ':' | 'M' | '=' | 'X' => {
                         let mut match_len = cigar.length;
                         while match_len > 0 {
                             let current_match = match_len.min(
                                 graph.node_to_length(
-                                    mapping[cur_mapping].position.as_ref().unwrap().node_id,
+                                    mapping[cur_mapping]
+                                        .position
+                                        .as_ref()
+                                        .ok_or(ConversionError::MissingPosition)?
+                                        .node_id,
                                 ) - cur_offset as usize,
                             );
                             let mut edit_sequence = String::new();
-                            if cigar.cat == "X" {
+                            if cigar.cat == 'X' {
                                 edit_sequence = "N".repeat(current_match);
                             }
-                            let cur_position = mapping[cur_mapping].position.clone().unwrap();
+                            let cur_position = mapping[cur_mapping]
+                                .position
+                                .clone()
+                                .ok_or(ConversionError::MissingPosition)?;
                             sequence += &graph
                                 .node_to_sequence(cur_position.node_id, cur_position.is_reverse)
                                 [cur_offset as usize..cur_offset as usize + current_match];
@@ -116,21 +134,21 @@ impl vg::Alignment {
                             }
                         }
                     }
-                    "+" | "I" | "S" => {
+                    '+' | 'I' | 'S' => {
                         let mut target_mapping = cur_mapping;
                         if cur_offset == 0
                             && cur_mapping > 0
                             && (!mapping[cur_mapping - 1]
                                 .position
                                 .as_ref()
-                                .unwrap()
+                                .ok_or(ConversionError::MissingPosition)?
                                 .is_reverse
                                 || cur_mapping == mapping.len())
                         {
                             // left-align insertion
                             target_mapping -= 1;
                         }
-                        let edit_sequence = if cigar.cat == "+" {
+                        let edit_sequence = if cigar.cat == '+' {
                             cigar.query
                         } else {
                             "N".repeat(cigar.length)
@@ -145,13 +163,19 @@ impl vg::Alignment {
 
                         mapping[target_mapping].edit.push(edit);
                     }
-                    "-" | "D" => {
+                    '-' | 'D' => {
                         let mut del_len = cigar.length;
                         while del_len > 0 {
-                            let current_del = del_len.min(graph.node_to_length(
-                                mapping[cur_mapping].position.as_ref().unwrap().node_id
-                                    - cur_offset,
-                            ));
+                            let current_del = del_len.min(
+                                graph.node_to_length(
+                                    mapping[cur_mapping]
+                                        .position
+                                        .as_ref()
+                                        .ok_or(ConversionError::MissingPosition)?
+                                        .node_id
+                                        - cur_offset,
+                                ),
+                            );
                             let edit = vg::Edit {
                                 from_length: current_del as i32,
                                 to_length: 0,
@@ -164,12 +188,16 @@ impl vg::Alignment {
                                 cur_mapping += 1;
                                 cur_offset = 0;
                                 cur_len = graph.node_to_length(
-                                    mapping[cur_mapping].position.as_ref().unwrap().node_id,
+                                    mapping[cur_mapping]
+                                        .position
+                                        .as_ref()
+                                        .ok_or(ConversionError::MissingPosition)?
+                                        .node_id,
                                 );
                             }
                         }
                     }
-                    "*" => {
+                    '*' => {
                         sequence += &cigar.query;
                         let edit = vg::Edit {
                             from_length: cigar.length as i32,
@@ -186,7 +214,11 @@ impl vg::Alignment {
                     cur_offset = 0;
                     if cur_mapping < mapping.len() {
                         cur_len = graph.node_to_length(
-                            mapping[cur_mapping].position.as_ref().unwrap().node_id,
+                            mapping[cur_mapping]
+                                .position
+                                .as_ref()
+                                .ok_or(ConversionError::MissingPosition)?
+                                .node_id,
                         );
                     }
                 }
@@ -232,11 +264,11 @@ impl vg::Alignment {
             match key.as_str() {
                 "dv" => {
                     // get the identity from the dv divergence field
-                    alignment.identity = 1.0 - value.1.parse::<f64>().unwrap();
+                    alignment.identity = 1.0 - value.1.parse::<f64>()?;
                 }
                 "AS" => {
                     // get the score from the AS field
-                    alignment.score = value.1.parse::<i32>().unwrap();
+                    alignment.score = value.1.parse::<i32>()?;
                 }
                 "bq" => {
                     // get the quality from the bq field
@@ -269,7 +301,7 @@ impl vg::Alignment {
             }
         }
 
-        alignment
+        Ok(alignment)
     }
 }
 
@@ -303,10 +335,10 @@ mod tests {
     use std::fs::File;
 
     #[test]
-    fn gam_read() {
+    fn gam_read() -> Result<(), Box<dyn std::error::Error>> {
         let in_file = "data/example.gam";
-        let f = File::open(in_file).unwrap();
-        let alignments: Vec<vg::Alignment> = parse(f).unwrap();
+        let f = File::open(in_file)?;
+        let alignments: Vec<vg::Alignment> = parse(f)?;
         let first = alignments[0].clone();
 
         let name = "FBtr0342963_e_1536_X_294766";
@@ -318,12 +350,13 @@ mod tests {
         assert_eq!(first.mapping_quality, mapping_quality);
         assert_eq!(first.sequence, sequence);
         assert_eq!(first.score, score);
+        Ok(())
     }
 
     #[test]
-    fn gam_write() {
+    fn gam_write() -> Result<(), Box<dyn std::error::Error>> {
         let out_file = "data/example.out.gam";
-        let of = File::create(out_file).unwrap();
+        let of = File::create(out_file)?;
         let alignment = vg::Alignment {
             name: "test".into(),
             mapping_quality: 1000,
@@ -332,22 +365,23 @@ mod tests {
             ..Default::default()
         };
         let alignments: Vec<vg::Alignment> = vec![alignment.clone()];
-        write(&alignments, of).unwrap();
+        write(&alignments, of)?;
 
         let in_file = "data/example.out.gam";
-        let f = File::open(in_file).unwrap();
-        let alignments: Vec<vg::Alignment> = parse(f).unwrap();
+        let f = File::open(in_file)?;
+        let alignments: Vec<vg::Alignment> = parse(f)?;
         let first = alignments[0].clone();
 
         assert_eq!(first, alignment);
+        Ok(())
     }
 
     #[test]
-    fn gam_edit() {
+    fn gam_edit() -> Result<(), Box<dyn std::error::Error>> {
         let in_file = "data/example.gam";
-        let f = File::open(in_file).unwrap();
+        let f = File::open(in_file)?;
 
-        let alignments: Vec<vg::Alignment> = parse(f).unwrap();
+        let alignments: Vec<vg::Alignment> = parse(f)?;
         let mut alignment = alignments[0].clone();
 
         alignment.name = "new_name".into();
@@ -359,25 +393,26 @@ mod tests {
         );
 
         let out_file = "data/example.out.gam";
-        let of = File::create(out_file).unwrap();
-        write(&(vec![alignment.clone()]), of).unwrap();
+        let of = File::create(out_file)?;
+        write(&(vec![alignment.clone()]), of)?;
 
         let in_file = "data/example.out.gam";
-        let f = File::open(in_file).unwrap();
-        let alignments: Vec<vg::Alignment> = parse(f).unwrap();
+        let f = File::open(in_file)?;
+        let alignments: Vec<vg::Alignment> = parse(f)?;
         let first = alignments[0].clone();
 
         assert_eq!(first, alignment);
+        Ok(())
     }
 
     #[test]
-    fn convert_from_gaf() {
+    fn convert_from_gaf() -> Result<(), Box<dyn std::error::Error>> {
         use pretty_assertions::assert_eq;
-        let graph: GFA<usize, ()> = GFAParser::new().parse_file("data/convert.gfa").unwrap();
-        let gam = parse_from_file("data/convert.gam").unwrap();
-        let gaf = gaf::parse_from_file("data/convert.gaf");
+        let graph: GFA<usize, ()> = GFAParser::new().parse_file("data/convert.gfa")?;
+        let gam = parse_from_file("data/convert.gam")?;
+        let gaf = gaf::parse_from_file("data/convert.gaf")?;
 
-        let generated_gam = convert_gaf_to_gam(&gaf, &graph);
+        let generated_gam = convert_gaf_to_gam(&gaf, &graph)?;
 
         assert_eq!(gam.len(), generated_gam.len());
 
@@ -392,5 +427,6 @@ mod tests {
             }
         }
         assert_eq!(gam.len(), match_count);
+        Ok(())
     }
 }

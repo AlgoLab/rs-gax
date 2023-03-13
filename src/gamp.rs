@@ -1,28 +1,28 @@
-use crate::framing::{self, vg, Error};
+use crate::framing::{self, vg, FramingError};
 use std::{
     fs::File,
     io::{Read, Write},
 };
 
-pub fn parse(data: impl Read) -> Result<Vec<vg::MultipathAlignment>, Error> {
+pub fn parse(data: impl Read) -> Result<Vec<vg::MultipathAlignment>, FramingError> {
     framing::parse::<vg::MultipathAlignment>(data)
 }
 
 pub fn parse_from_file(
     path: impl AsRef<std::path::Path>,
-) -> Result<Vec<vg::MultipathAlignment>, Error> {
+) -> Result<Vec<vg::MultipathAlignment>, FramingError> {
     let f = File::open(path)?;
     parse(f)
 }
 
-pub fn write(alignments: &[vg::MultipathAlignment], mut out_file: impl Write) -> Result<(), Error> {
+pub fn write(alignments: &[vg::MultipathAlignment], mut out_file: impl Write) -> Result<(), FramingError> {
     framing::write::<vg::MultipathAlignment>(alignments, &mut out_file)
 }
 
 pub fn write_to_file(
     alignments: &[vg::MultipathAlignment],
     path: impl AsRef<std::path::Path>,
-) -> Result<(), Error> {
+) -> Result<(), FramingError> {
     let f = File::create(path)?;
     write(alignments, f)
 }
