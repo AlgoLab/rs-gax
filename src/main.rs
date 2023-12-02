@@ -1,30 +1,28 @@
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::BufReader;
-
-mod gaf;
-use gaf::GafRecord;
+use gax::{gaf, gam, gamp};
 
 fn main() {
-    println!("Hello, world!");
-
-    // GAF I/O
-    let f = File::open("data/example.gaf").unwrap();
-    let f = BufReader::new(f);
-    let mut of = File::create("data/example.out.gaf").unwrap();
-    for line in f.lines() {
-        let mut gr: GafRecord = GafRecord::new(); // TODO/FIXME: move this outside
-        gr.parse_gaf_record(&line.unwrap());
-        gr.write(&mut of).ok();
+    if let Err(e) = main_() {
+        eprintln!("ERROR: {}", e);
     }
+}
+
+fn main_() -> Result<(), Box<dyn std::error::Error>> {
+    // GAF I/O
+    let gaf = gaf::parse_from_file("data/example.gaf")?;
+    gaf::write_to_file(&gaf, "data/example.out.gaf")?;
+    assert!(gaf == gaf::parse_from_file("data/example.out.gaf")?);
+    println!("GAF: {} records", gaf.len());
 
     // GAM I/O
-    let f = File::open("data/example.gam").unwrap();
-    // let f = BufReader::new(f);
-    // let mut of = File::create("data/example.out.gaf").unwrap();
-    // for line in f.lines() {
-    //     let mut gr: GafRecord = GafRecord::new();
-    //     gr.parse_gaf_record(&line.unwrap());
-    //     gr.write(&mut of).ok();
-    // }
+    let gam = gam::parse_from_file("data/example.gam")?;
+    gam::write_to_file(&gam, "data/example.out.gam")?;
+    assert!(gam == gam::parse_from_file("data/example.out.gam")?);
+    println!("GAM: {} records", gam.len());
+
+    // GAMP I/O
+    let gamp = gamp::parse_from_file("data/example.gamp")?;
+    gamp::write_to_file(&gamp, "data/example.out.gamp")?;
+    assert!(gamp == gamp::parse_from_file("data/example.out.gamp")?);
+    println!("GAMP: {} records", gamp.len());
+    Ok(())
 }
